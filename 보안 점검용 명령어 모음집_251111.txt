@@ -1,0 +1,197 @@
+사용자 계정 확인 :
+
+Get-LocalUser	/ 로컬 사용자 계정 전체 출력
+
+Get-LocalGroupMember Administrators / 관리자 계정 보기
+
+Get-NetFirewallProfile	/ Public/Private/Domain 방화벽 상태 : 프로필 상태 확인
+
+netstat -ano	/ 원격 접속 포트 확인 : findstr LISTENING
+
+Get-Service		/ 서비스 자동 실행 점검 : Where-Object {$_.StartType -eq "Automatic"}'
+
+Get-WinEvent -LogName Security -MaxEvents 10	/ 최근 이벤트로그 확인 : 최근 10개 보안 로그
+
+(Get-MpComputerStatus).RealTimeProtectionEnabled	/ Defender 실시간 보호 상태 : True면 실시간 보호 on
+
+Get-MpComputerStatus | Select AMServiceEnabled, AntispywareEnabled, AntivirusEnabled, RealTimeProtectionEnabled, BehaviorMonitorEnabled
+
+
+AMServiceEnabled          : True
+AntispywareEnabled        : True
+AntivirusEnabled          : True
+RealTimeProtectionEnabled : False
+BehaviorMonitorEnabled    : False		/ 주요 방어 모듈이 다 한번에 보여서 점검 보고서에도 넣기에 좋음..ㅎ
+
+net accounts	/ 암호 정책 확인 : 비밀번호 정책 및 만료 기간 확인
+
+Get-Process	/ 프로세스 위험도 스캔 (간단 버전) : Sort CPU -Descending
+
+=======================================================================
+
+1. 계정 / 권한 / AD 관련 점검 확인
+
+- 로컬 관리자 그룹 상세 확인
+
+Get-LocalGroupMember Administrators | Select Name, ObjectClass
+
+- 최근 생성된 계정 확인
+
+Get-LocalUser | Where-Object {$_.PasswordLastSet -gt (Get-Date).AddDays(-7)}
+
+- 계정 잠금 정책 확인
+
+net accounts /domain
+
+- RDP 접속 허용 사용자 확인
+
+(Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server").fDenyTSConnections
+
+2. 네트워크 / 세션 / 포트 점검
+
+- 외부 연결 세션 확인
+
+Get-NetTCPConnection | Where-Object {$_.State -eq "Established"}
+└168.63.129.16 → Azure에서 건강 체크, DNS, 시간 동기화, 로그 등 내부적으로 쓰는 고정 IP
+
+169.254.169.254 → Azure Instance Metadata Service (VM이 자기 정보/토큰 가져갈 때 쓰는 IP) / 이 둘은 애저 VM 정상 트래픽.
+└ 비정상 포트(C2에 자주 쓰이는 8081, 4444, 1337, 5555, 14444 등) → 눈에 안 보임 / 그럼 외부 연결한 세션 흔적 없음, 정상
+
+- 방화벽 룰 전체 목록
+
+Get-NetFirewallRule | Select DisplayName, Enabled, Direction, Action
+
+- 활성 네트워크 프로필
+
+Get-NetConnectionProfile
+
+- 최근 원격 로그인 IP 확인
+
+Get-WinEvent -LogName Security | Where-Object { $_.Id -eq 4624 } | Select -First 5
+
+3. 서비스 / 프로세스 / 스케줄러 점검
+
+- 자동 실행 서비스 + 비정상 서비스 필터링
+
+Get-Service | Where-Object {$_.StartType -eq "Automatic" -and $_.Status -ne "Running"}
+
+- 비정상 서명 프로세스 확인
+
+Get-Process | Select Name, Path, Company
+
+- 스케줄러 작업 확인
+
+Get-ScheduledTask | Select TaskName, State, Actions
+
+- 스타트업 프로그램 확인
+
+Get-CimInstance Win32_StartupCommand | Select Name, Command
+
+4. Sysmon 설치된 환경에서 (강력 추천)
+
+- Sysmon 상태 확인
+
+Get-Service sysmon*
+
+- 최근 20개 Sysmon 이벤트
+
+Get-WinEvent -LogName "Microsoft-Windows-Sysmon/Operational" -MaxEvents 20
+
+5. 파일 무결성 / 주요 디렉토리 변조 점검
+
+- 최근 24시간 내 변경된 파일
+
+Get-ChildItem -Recurse C:\ | Where-Object {$_.LastWriteTime -gt (Get-Date).AddDays(-1)}
+
+- 의심 확장자 탐색
+
+Get-ChildItem -Recurse C:\ -Include *.ps1, *.vbs, *.bat, *.exe
+
+6. 악성 행위 / 멀웨어 흔적 점검
+
+- PowerShell 로그 상태
+
+Get-WinEvent -ListLog *PowerShell*
+
+- Defender 전체 상태
+
+Get-MpComputerStatus
+
+- 최근 탐지 이력
+
+Get-MpThreat
+
+- 문제 파일 실시간 검사
+
+Start-MpScan -ScanType QuickScan
+
+7. OS 하드닝 관련 점검
+
+- SMBv1 비활성화 여부
+
+Get-SmbServerConfiguration | Select EnableSMB1Protocol
+
+- RDP 암호화 레벨 확인
+
+Get-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Control\Terminal\ Server\WinStations\RDP-Tcp | Select MinEncryptionLevel
+
+- TLS 버전 점검
+
+Get-ChildItem "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols"
+
+8. 공격 흔적 기반 점검 (IR팀이 자주 씀)
+
+- LSASS 핸들 열린 프로세스 체크
+
+Get-Process | Where-Object {$_.Name -like "*lsass*"}
+
+- 의심 네트워크 포트 3389, 5985, 5986 스캔
+
+netstat -ano | findstr ":3389"
+netstat -ano | findstr ":5985"
+
+└ Get-NetFirewallRule -DisplayName "*RDP*" 		/ 이게 내부에서만 열렸나? 외부에서도 접근 가능한가? 확인방법
+└ Get-NetFirewallRule -DisplayPort 3389		/ 3389 외부 노출 여부 확인
+Azure VM이면:
+
+Network Security Group(NSG)
+
+Azure Firewall
+
+Public IP Settings
+
+에서 3389 → Any 허용인지 확인.
+
+└ winrm enumerate winrm/config/listener 		/ 5985 WinRM 외부 노출 여부 확인 (외부 노출이면 위험, 내부면 정상)
+
+- 최근 실행된 프로세스
+
+Get-WinEvent -LogName System -MaxEvents 30 | Where-Object {$_.Message -like "*process*"}
+
+9. 로그 기반 공격 흔적 빠르게 찾기
+
+- 실패한 로그인(Brute Force, RDP 공격)
+
+Get-WinEvent -LogName Security | Where-Object {$_.Id -eq 4625} | Select TimeCreated, Message
+
+- 관리자 권한 상승 이벤트
+
+Get-WinEvent -LogName Security | Where-Object {$_.Id -eq 4672}
+
+- 계정 추가 이벤트
+
+Get-WinEvent -LogName Security | Where-Object {$_.Id -eq 4720}
+
+=============================================================
+
+만약 외부에서 노출된 상태면 조치 사항
+
+- RDP 외부 차단 방법
+
+Set-NetFirewallRule -DisplayGroup "Remote Desktop" -Enabled True -Profile Domain,Private
+Set-NetFirewallRule -DisplayGroup "Remote Desktop" -Profile Public -Enabled False
+
+- WinRM 외부 차단 방법
+
+Set-NetFirewallRule -Name "WINRM-HTTP-In-TCP" -Profile Public -Enabled False
+ 
