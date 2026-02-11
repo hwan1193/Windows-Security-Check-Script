@@ -1,0 +1,104 @@
+1) Defender 포털에서 먼저 확인 (가장 깔끔)
+
+Defender for Endpoint(보안 포털)에서 해당 alert 열고 다음을 캡처/기록:
+
+File SHA1 / SHA256 (화면에 SHA1은 이미 보이는 듯)
+
+File path / Signer(서명자) / Issuer
+
+Is PE / Creation/Modified time
+
+VirusTotal 탐지 비율 (0/72 같은 값)
+
+Remediation action: quarantine / success
+
+여기서 핵심은:
+
+서명자(Company/Publisher)가 “AnySphere, Inc.”(Cursor)로 정상인지
+
+Microsoft ID Verified 같은 체인 정보가 정상으로 보이는지
+
+그리고 해시(SHA1)가 다른 사용자/다른 장치에서 동일하게 반복되는지
+→ 반복되면 “정상 업데이트(오탐)” 가능성이 확 올라감.
+
+2) 로컬에서 해시/서명 확인 (가능할 때만)
+
+파일이 아직 디스크에 남아있고 경로 접근이 된다면 AVD에서 아래 실행.
+
+(1) 해시 확인 (PowerShell)
+Get-FileHash "C:\Users\***\AppData\Local\Programs\cursor\tools\inno_updater.exe" -Algorithm SHA256
+Get-FileHash "C:\Users\***\AppData\Local\Programs\cursor\tools\inno_updater.exe" -Algorithm SHA1
+
+(2) 디지털 서명 확인
+Get-AuthenticodeSignature "C:\Users\***\AppData\Local\Programs\cursor\tools\inno_updater.exe" | Format-List *
+
+
+정상 신호
+
+Status : Valid
+
+SignerCertificate.Subject에 AnySphere/Cursor 관련 정보
+
+TimeStamperCertificate 존재(있는 경우)
+
+비정상 신호
+
+Status : NotSigned / UnknownError / HashMismatch
+
+서명자 정보가 이상하거나 공란
+
+근데 지금 케이스는 “차단/격리 성공”이라 파일이 이미 접근 불가일 수 있어요. 그럼 3번으로.
+
+3) 격리된 파일은 “복원하지 말고” 이렇게 다룸
+
+격리된 파일을 검증하려고 Restore(복원) 하는 건 위험하고 정책적으로도 NG.
+
+대신 옵션은 2개:
+
+포털의 File entity(파일 엔터티) 정보만으로 판단
+
+해시/서명/VT/유사 탐지/동일 파일 출현 여부로 충분히 결론 가능
+
+정말 원본이 필요하면
+
+“보안 담당자만 접근 가능한 격리 샌드박스/분석 VM”에서 안전 추출(조직 정책/절차 필요)
+
+보통은 EDR 콘솔에서 “Collect investigation package”나 “File sample 요청” 같은 절차로 처리 (테넌트 권한 필요)
+
+4) 그럼 ‘검증’의 판단 기준은 뭐냐 (현장 기준)
+
+정상 업데이트(오탐) 쪽으로 기우는 조건
+
+서명 Valid
+
+Publisher가 Cursor/AnySphere로 일관
+
+VirusTotal 0/x 또는 낮음
+
+같은 해시가 여러 장치/여러 사용자에서 반복
+
+파일 경로가 공식 설치 경로(Program Files/AppData Cursor 경로)로 일관
+
+진짜 악성 가능성
+
+서명 없음/깨짐
+
+파일 경로가 이상(Temp/Downloads/Random 폴더)
+
+동일 장치에서 유사 행위 다발(지속성/스케줄러/레지스트리 Run 키 등)
+
+VT 탐지 높음, 다른 악성 행위(외부 C2, 권한상승 등) 동반
+
+5) 도윤님이 지금 바로 할 “실전 체크리스트”
+
+Defender alert에서 SHA1/서명자/VT/Remediation success 캡처
+
+같은 해시가 다른 장치에도 뜨는지 검색(파일 해시로)
+
+가능하면 AVD에서 Get-AuthenticodeSignature / Get-FileHash 실행
+
+결과에 따라:
+
+오탐 의심이면: “Cursor 업데이트 관련 오탐 가능, 격리 유지 + 공급사 확인”
+
+악성 의심이면: “AVD 세션 격리/사용자 로그인 제한/추가 포렌식 패키지 수집”
