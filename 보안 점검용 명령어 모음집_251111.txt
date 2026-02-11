@@ -191,7 +191,16 @@ Get-WinEvent -LogName Security | Where-Object {$_.Id -eq 4720}
 Set-NetFirewallRule -DisplayGroup "Remote Desktop" -Enabled True -Profile Domain,Private
 Set-NetFirewallRule -DisplayGroup "Remote Desktop" -Profile Public -Enabled False
 
+- C 드라이브 전체에서 모든 파일과 폴더 전체 확인용
+Get-ChildItem -Path "C:\" -Recurse -ErrorAction SilentlyContinue 
+
+Get-ChildItem	행동	특정 위치에 있는 아이템(파일, 폴더) 목록을 가져오라는 기본 명령어입니다. (cmd의 dir과 비슷함)
+-Path "C:\"	대상	탐색을 시작할 위치를 C 드라이브 루트로 지정합니다.
+-Recurse	범위	'재귀적 탐색'을 의미합니다. 현재 폴더뿐만 아니라 그 안에 있는 모든 하위 폴더까지 파고들며 찾아냅니다.
+-ErrorAction SilentlyContinue	예외 처리	권한이 없는 시스템 폴더 등에 접근할 때 발생하는 에러 메시지를 화면에 띄우지 말고 그냥 무시하라는 뜻입니다.
+
 - WinRM 외부 차단 방법
 
 Set-NetFirewallRule -Name "WINRM-HTTP-In-TCP" -Profile Public -Enabled False
+
  
